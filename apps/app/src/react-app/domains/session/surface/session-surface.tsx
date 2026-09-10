@@ -53,6 +53,7 @@ import type {
 import { ReactSessionComposer } from "./composer/composer";
 import { WorkspaceRunModeMenu } from "./composer/workspace-run-mode-menu";
 import { useSessionModelSelection } from "./session-model-store";
+import { getSessionAgentSelection, useSessionAgentSelection } from "./session-mode-memory";
 import type { ProviderCatalog } from "./use-model-behavior";
 import type { ModelAvailability } from "./model-availability";
 import { isComputerTarget } from "./composer/computer-mentions";
@@ -608,7 +609,7 @@ export type SessionSurfaceProps = {
   onModelChange: (model: ModelRef, variant?: string | null) => void;
   archived?: boolean;
   onRestoreSession?: () => Promise<void>;
-  onSendDraft: (draft: ComposerDraft, sessionId: string, onPrepared?: (text?: string) => void) => Promise<CloudMcpSubmissionResult>;
+  onSendDraft: (draft: ComposerDraft, sessionId: string, onPrepared?: (text?: string) => void, agent?: string | null) => Promise<CloudMcpSubmissionResult>;
   cloudMcpSubmissionState: CloudMcpSubmissionGateState;
   onOpenConnect: () => void;
   onDraftChange: (draft: ComposerDraft) => void;
@@ -618,6 +619,7 @@ export type SessionSurfaceProps = {
   modelVariant: string | null;
   modelBehaviorOptions?: { value: string | null; label: string }[];
   onModelVariantChange: (value: string | null) => void;
+  /** New-task defaults, adopted only when this session has no remembered agent. */
   agentLabel: string;
   selectedAgent: string | null;
   listAgents: () => Promise<import("@opencode-ai/sdk/v2/client").Agent[]>;
@@ -1103,6 +1105,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // session B when the route swaps the same surface component to another
   // session.
   const queuedItems = useComposerStateStore((state) => getComposerQueuedDrafts(state, props.sessionId));
+  const sessionAgent = useSessionAgentSelection({
+    sessionId: props.sessionId,
+    fallbackAgent: props.selectedAgent,
+    onFallbackAgentChange: props.onSelectAgent,
+  });
   useEffect(() => {
     if (queuedItems.length === 0) return;
     setQueuedSendContext(props.sessionId, {
@@ -1111,7 +1118,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       opencodeBaseUrl: props.opencodeBaseUrl,
       openworkToken: props.openworkToken,
       client: props.client,
-      agent: props.selectedAgent,
+      agent: sessionAgent.selectedAgent,
       variant: props.modelVariant,
       model: props.selectedModel,
       environmentRuntimeKey: props.environmentRuntimeKey ?? null,
@@ -1122,7 +1129,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     props.modelVariant,
     props.opencodeBaseUrl,
     props.openworkToken,
-    props.selectedAgent,
+    sessionAgent.selectedAgent,
     props.selectedModel,
     props.sessionId,
     props.workspaceId,
@@ -2040,6 +2047,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // Immediate sends interrupt foreground delegation, but otherwise steer the
   // running loop. Explicit queueing and automatic draining stay separate.
   const sendDraft = useCallback(async (nextDraft: ComposerDraft, itemId: string, onPrepared?: (text?: string) => void): Promise<CloudMcpSubmissionResult | { outcome: "unknown" }> => {
+    // Capture before interruption/readiness waits; later selections affect only later sends.
+    const agent = getSessionAgentSelection(props.sessionId, props.selectedAgent);
     const messageId = nextDraft.messageId ?? createPromptMessageID();
     const generation = getQueuedSendGeneration(props.sessionId);
     const submissionId = Symbol();
@@ -2057,7 +2066,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           if (getQueuedSendGeneration(props.sessionId) !== generation) {
             return { outcome: "cancelled", reason: "context_changed" };
           }
-          return props.onSendDraft({ ...nextDraft, messageId }, props.sessionId, onPrepared);
+          return props.onSendDraft({ ...nextDraft, messageId }, props.sessionId, onPrepared, agent);
         }, { directory: props.workspaceRoot.trim() || undefined, messageID: messageId });
       dispatchQueuedDrain(props.sessionId, {
         type: "send_result", itemId, outcome: result.outcome, at: Date.now(),
@@ -2096,7 +2105,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       pendingSendsRef.current.delete(submissionId);
       setPendingSendSessions([...pendingSendsRef.current.values()]);
     }
-  }, [archived, archiveStateKnown, opencodeClient, openingHistory.ensureFullSnapshot, props.onSendDraft, props.opencodeBaseUrl, props.sessionId, props.workspaceId, props.workspaceRoot, renderedMessages.length, sessionOwner, setError]);
+  }, [archived, archiveStateKnown, opencodeClient, openingHistory.ensureFullSnapshot, props.onSendDraft, props.opencodeBaseUrl, props.selectedAgent, props.sessionId, props.workspaceId, props.workspaceRoot, renderedMessages.length, sessionOwner, setError]);
 
   const clearComposer = useCallback(() => {
     clearComposerSession(props.sessionId);
@@ -2556,7 +2565,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // coming from the default agent (#2101).
     if (kind === "agent") {
       setComposerDraft(props.sessionId, draft.replace(/@([^\s@]*)$/, ""));
-      props.onSelectAgent(value);
+      sessionAgent.setAgent(value);
       toast.success(t("composer.agent_selected", { agent: value }));
       return;
     }
@@ -2582,7 +2591,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         }
       })();
     }
-  }, [draft, mentions, props.onSelectAgent, props.sessionId, setComposerDraft, setComposerMentions]);
+  }, [draft, mentions, sessionAgent.setAgent, props.sessionId, setComposerDraft, setComposerMentions]);
 
   const handlePasteText = useCallback((text: string) => {
     const pasted = createPastedTextChip(text);
@@ -3398,10 +3407,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         modelVariant={sessionModel.modelVariant}
         modelBehaviorOptions={sessionModel.modelBehaviorOptions}
         onModelVariantChange={handleModelVariantChange}
-        agentLabel={props.agentLabel}
-        selectedAgent={props.selectedAgent}
+        agentLabel={sessionAgent.selectedAgent === props.selectedAgent ? props.agentLabel : sessionAgent.selectedAgent ? sessionAgent.selectedAgent.charAt(0).toUpperCase() + sessionAgent.selectedAgent.slice(1) : t("session.default_agent")}
+        selectedAgent={sessionAgent.selectedAgent}
         listAgents={props.listAgents}
-        onSelectAgent={props.onSelectAgent}
+        onSelectAgent={sessionAgent.setAgent}
         listCommands={props.listCommands}
         listSkills={listSkills}
         skills={toolSkills}

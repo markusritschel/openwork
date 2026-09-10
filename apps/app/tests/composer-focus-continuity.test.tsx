@@ -160,7 +160,9 @@ test("composer focus, shared Restore, pending stops, and optimistic sends preser
   }));
   mock.module("@/components/model-select", () => ({ ModelSelect: () => null }));
   mock.module("@/react-app/domains/session/surface/composer/workspace-run-mode-menu", () => ({ WorkspaceRunModeMenu: () => null }));
+  const nativeSessionModule = await import("../src/app/lib/opencode-session-native");
   mock.module("@/app/lib/opencode-session-native", () => ({
+    ...nativeSessionModule,
     composeNativeSessionSnapshot: async (_target: unknown, id: string) => id === otherSessionId ? otherSnapshot : snapshotRead ?? fetchedSnapshot,
   }));
   const { SessionSurface } = await import("../src/react-app/domains/session/surface/session-surface");
@@ -275,9 +277,12 @@ test("composer focus, shared Restore, pending stops, and optimistic sends preser
                 modelVariantLabel="Default"
                 modelVariant={null}
                 onModelVariantChange={() => {}}
-                agentLabel="OpenWork"
-                selectedAgent={null}
-                listAgents={async () => []}
+                agentLabel="Build"
+                selectedAgent="build"
+                listAgents={async () => [
+                  { name: "build", mode: "primary", permission: [], options: {} },
+                  { name: "plan", mode: "primary", permission: [], options: {} },
+                ]}
                 onSelectAgent={() => {}}
                 listCommands={async () => []}
                 recentFiles={[]}
@@ -311,6 +316,25 @@ test("composer focus, shared Restore, pending stops, and optimistic sends preser
     if (!editor) throw new Error("Expected the Lexical editor");
     editor.focus();
     expect(document.activeElement).toBe(editor);
+
+    // A selection changes future submissions, not the busy turn or its draft.
+    for (const next of ["Plan", "Build"]) {
+      const picker = container.querySelector<HTMLButtonElement>('[data-composer-settings] button[title="Agent"]');
+      expect(picker?.disabled).toBe(false);
+      await act(async () => picker?.click());
+      const option = () => [...container.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent === next && button !== picker);
+      await waitFor(() => option() !== undefined, `the ${next} option`);
+      await act(async () => {
+        option()?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      });
+      expect(picker?.textContent).toBe(next);
+      expect(picker?.getAttribute("aria-expanded")).toBe("false");
+      expect(container.querySelector('button[aria-label="Stop"]')).not.toBeNull();
+      expect(editor.textContent).toBe(draft);
+      expect(sentDrafts).toHaveLength(0);
+      expect(interrupt).not.toHaveBeenCalled();
+    }
 
     // Hold both async boundaries: idle alone must not release Stop's feedback.
     let snapshotRefresh = Promise.withResolvers<void>();

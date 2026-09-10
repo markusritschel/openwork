@@ -60,6 +60,8 @@ export async function chatStreamContinuityWeb(seed: Seed, context: { place: Plac
   const providerId = "stream-continuity-mock";
   const modelId = "stream-continuity-model";
   const workspacePath = seed.tmpPath("chat-stream-continuity");
+  const planPrompt = "Outline the next continuity check.";
+  const planReply = "The next check will compare the retained report with its checkpoints.";
   const mock = seed.mock({
     isolatedProcessEnv: true,
     agentWorkloads: [{
@@ -69,7 +71,12 @@ export async function chatStreamContinuityWeb(seed: Seed, context: { place: Plac
       finalReplyChunks: [...streamedContinuityChunks],
       finalReplyInitiallyReleasedChunks: 1,
       steps: [],
-    }],
+    }, ...(engine === "v1" ? [{
+      promptMarker: planPrompt,
+      latestUserTurn: true,
+      finalReply: planReply,
+      steps: [],
+    }] : [])],
   });
 
   const app = await seed.appWeb({
@@ -84,6 +91,14 @@ export async function chatStreamContinuityWeb(seed: Seed, context: { place: Plac
   const workspace = await seed.workspace(app, workspacePath);
   const continuity = chatContinuity(app, workspace.workspaceId);
   const engineHttpEvents = await continuity.observeEngineHttpEvents();
+  if (engine === "v1") {
+    // The inline picker is hidden until a named selection has been saved.
+    await seed.evalIn(app, () => {
+      const preferences: unknown = JSON.parse(localStorage.getItem("openwork.preferences") ?? "{}");
+      if (!preferences || typeof preferences !== "object" || Array.isArray(preferences)) throw new Error("Invalid local preferences");
+      localStorage.setItem("openwork.preferences", JSON.stringify({ ...preferences, selectedAgent: "build" }));
+    });
+  }
   await configureProvider(seed, app, workspace.workspaceId, providerId, modelId, {
     provider: {
       [providerId]: {
@@ -105,6 +120,8 @@ export async function chatStreamContinuityWeb(seed: Seed, context: { place: Plac
     workspace,
     session,
     neighbor,
+    planPrompt,
+    planReply,
     continuity,
     engineHttpEvents: () => engineHttpEvents.read(),
     replyState: () => agentMock.agentReplyState(streamedContinuityMarker),
