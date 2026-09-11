@@ -4,7 +4,10 @@ import { readdir, readFile } from 'node:fs/promises';
 // Unlisted specs are discovered automatically as full-regression journeys.
 const definitions = {
   'composer-model-picker-no-subscribe-promo.e2e.test.ts': {
-    cases: [{ id: 'MODEL-01', engines: ['v2'], optIns: ['OPENWORK_EVAL_E2E_TESTS'], example: { placement: '--local', engine: 'v2' } }],
+    cases: [
+      { id: 'MODEL-01', engines: ['v2'], optIns: ['OPENWORK_EVAL_E2E_TESTS'], example: { placement: '--local', engine: 'v2' } },
+      { id: 'MODEL-02', engines: ['v2'], optIns: ['OPENWORK_EVAL_E2E_TESTS'], example: { placement: '--local', engine: 'v2' } },
+    ],
   },
   // Its registered OAuth callback and synthetic client exchange run on owned loopback services.
   'mcp-connection-consent.e2e.test.ts': { name: 'Authorize a connected client once', placement: 'local' },

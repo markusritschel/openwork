@@ -22,6 +22,13 @@ export interface OpencodeV2ProviderSpec {
   name: string;
   baseUrl?: string;
   package?: string;
+  /**
+   * Catalog provider this entry stands in for (for example `openai` behind a
+   * Den `lpr_*` id). The engine copies that catalog provider's model records,
+   * including the reasoning variants it derives itself, onto models that share
+   * a wire `modelID`. Only set together with an AI SDK `package` identity.
+   */
+  canonical?: string;
   settings?: Record<string, unknown>;
   headers?: Record<string, unknown>;
   apiKey: string;
@@ -227,6 +234,7 @@ export async function createManagedOpencodeV2Server(
       providerConfig[provider.id] = {
         name: provider.name,
         package: provider.package ?? "@opencode-ai/ai/providers/openai-compatible",
+        ...(provider.canonical ? { canonical: provider.canonical } : {}),
         settings: {
           ...provider.settings,
           ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}),
