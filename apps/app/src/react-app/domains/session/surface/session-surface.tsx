@@ -1002,6 +1002,11 @@ function hiddenMessageCount(snapshot: OpenworkSessionSnapshot, revertMessageId: 
   return index < 0 ? snapshot.messages.length : snapshot.messages.length - index;
 }
 
+function owDiag(entry: Record<string, unknown>) {
+  const w = window as unknown as { __owDiag?: unknown[] };
+  (w.__owDiag ??= []).push({ ...entry, at: Date.now() });
+}
+
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
@@ -1281,9 +1286,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
     const previous = snapshotOwnerRef.current;
     snapshotOwnerRef.current = { queryKey: snapshotQueryKey, owner: sessionOwner };
     if (previous.queryKey !== snapshotQueryKey || previous.owner === sessionOwner) return;
+    owDiag({ type: "ownerFlipCancel", from: previous.owner, to: sessionOwner, key: JSON.stringify(snapshotQueryKey) });
     const filters = { queryKey: snapshotQueryKey, exact: true };
     void queryClient.cancelQueries(filters).then(() => queryClient.invalidateQueries(filters));
   }, [queryClient, sessionOwner, snapshotQueryKey]);
+  useEffect(() => {
+    owDiag({ type: "mount", sessionId: props.sessionId, owner: sessionOwner, key: JSON.stringify(snapshotQueryKey) });
+    return () => { owDiag({ type: "unmount", sessionId: props.sessionId, owner: sessionOwner, key: JSON.stringify(snapshotQueryKey) }); };
+  }, [props.sessionId, sessionOwner, snapshotQueryKey]);
 
   const fullSnapshot = snapshotQuery.data?.session.id === props.sessionId ? snapshotQuery.data : null;
   const hasFullHistory = fullSnapshot !== null;
@@ -2037,7 +2047,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
       if (archived || !archiveStateKnown) throw new Error("This session is read-only. Restore it before sending.");
       // The reading preview can omit the current delegated turn. Reuse or finish
       // the uncapped read before deciding whether this follow-up must interrupt it.
+      owDiag({ type: "sendEnsureStart", owner: sessionOwner, cached: queryClient.getQueryState(snapshotQueryKey)?.status ?? null, fetchStatus: queryClient.getQueryState(snapshotQueryKey)?.fetchStatus ?? null, observers: queryClient.getQueryCache().find({ queryKey: snapshotQueryKey, exact: true })?.getObserversCount() ?? null });
       const sendSnapshot = await openingHistory.ensureFullSnapshot();
+      owDiag({ type: "sendEnsureDone", owner: sessionOwner, messages: sendSnapshot.messages.length });
       if (getQueuedSendGeneration(props.sessionId) !== generation) throw new Error("Send cancelled by Stop.");
       const result = await submitImmediateSessionTurn<CloudMcpSubmissionResult>(props.opencodeBaseUrl, opencodeClient, props.sessionId,
         sendSnapshot.messages, async () => {
@@ -2085,6 +2097,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         dispatchQueuedDrain(props.sessionId, { type: "send_result", itemId, outcome: "cancelled", at: Date.now() });
         return { outcome: "cancelled", reason: "context_changed" };
       }
+      owDiag({ type: "sendError", owner: sessionOwner, name: nextError instanceof Error ? nextError.name : typeof nextError, message: nextError instanceof Error ? nextError.message : String(nextError), revert: nextError instanceof Error ? Reflect.get(nextError, "revert") : undefined, silent: nextError instanceof Error ? Reflect.get(nextError, "silent") : undefined, state: JSON.stringify(queryClient.getQueryState(snapshotQueryKey) ?? null).slice(0, 200) });
       dispatchQueuedDrain(props.sessionId, { type: "send_error", itemId });
       const parsed = parseSessionError(nextError);
       captureAnalyticsEvent("task_send_failed", {});

@@ -143,6 +143,7 @@ test(`sending an image in ${entryPoint} immediately moves it into the thread whi
       uploadingNow: Boolean(document.querySelector('[data-attachment-status="uploading"]')),
       status: [...document.querySelectorAll('[role="status"]')].map((el) => (el.textContent ?? "").slice(0, 60)),
       alerts: [...document.querySelectorAll('[role="alert"]')].map((el) => (el.textContent ?? "").slice(0, 120)),
+      diag: (window as unknown as { __owDiag?: unknown[] }).__owDiag ?? null,
     };
   }), {
     within: 30_000,
