@@ -122,19 +122,35 @@ test(`sending an image in ${entryPoint} immediately moves it into the thread whi
   await user.click("Run task");
 
   // TODO(primitive): await a transient attachment-status witness.
-  expect(await probe.eventually(() => probe.eval(() => {
+  const diag = await probe.eventually(() => probe.eval(() => {
     const rows = document.querySelectorAll('[data-message-role="user"]');
     const image = rows[0]?.querySelector<HTMLImageElement>("img");
-    return globalThis.__attachmentUploadingSeen === true && window.__openworkSubmissionFault?.attempts === 1
+    const ok = globalThis.__attachmentUploadingSeen === true && window.__openworkSubmissionFault?.attempts === 1
       && rows.length === 1 && Boolean(image?.complete && image.naturalWidth > 0)
       && !document.querySelector("[data-attachment-id]")
       && document.querySelector('[contenteditable="true"]')?.textContent === "";
+    return {
+      ok,
+      uploadingSeen: globalThis.__attachmentUploadingSeen,
+      attempts: window.__openworkSubmissionFault?.attempts,
+      rows: rows.length,
+      rowsText: [...rows].map((row) => (row.textContent ?? "").slice(0, 80)),
+      image: image ? { complete: image.complete, naturalWidth: image.naturalWidth, src: image.src.slice(0, 40) } : null,
+      chips: document.querySelectorAll("[data-attachment-id]").length,
+      chipStatuses: [...document.querySelectorAll("[data-attachment-id]")].map((chip) => chip.getAttribute("data-attachment-status")),
+      composer: document.querySelector('[contenteditable="true"]')?.textContent ?? null,
+      hash: location.hash,
+      uploadingNow: Boolean(document.querySelector('[data-attachment-status="uploading"]')),
+      status: [...document.querySelectorAll('[role="status"]')].map((el) => (el.textContent ?? "").slice(0, 60)),
+      alerts: [...document.querySelectorAll('[role="alert"]')].map((el) => (el.textContent ?? "").slice(0, 120)),
+    };
   }), {
     within: 30_000,
     intervalMs: 50,
     label: "one decoded thread preview and cleared composer while upload is held",
-    until: (value) => value === true,
-  })).toBe(true);
+    until: (value) => isRecord(value) && value.ok === true,
+  });
+  expect(isRecord(diag) && diag.ok).toBe(true);
   await step("Send moves the attachments immediately and preserves the next draft", async () => {
     await user.see("composer", { text: "" });
     expect((await probe.dom('[data-message-role="user"]')).elements).toHaveLength(1);
