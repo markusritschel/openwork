@@ -57,6 +57,8 @@ test('changed additional journey joins critical selection; manual filters work f
 test('registered case metadata names exact files, supported execution axes, and defaults', async () => {
   const entries = await catalog();
   assert.deepEqual(registeredCases.map(({ spec, id, engines }) => ({ spec, id, engines })), [
+    { spec: 'opencode-v2-skill-jit.e2e.test.ts', id: 'SKILL-ATTACH', engines: ['v1', 'v2'] },
+    { spec: 'opencode-v2-skill-jit.e2e.test.ts', id: 'SKILL-MISSING', engines: ['v2'] },
     {
       spec: 'composer-model-picker-no-subscribe-promo.e2e.test.ts',
       id: 'MODEL-01',
